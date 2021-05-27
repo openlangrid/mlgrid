@@ -1,4 +1,4 @@
-package org.langrid.servicecontainer.handler.websocket;
+package org.langrid.ml.service;
 
 import org.langrid.service.ml.MaskedWordPredictionResult;
 import org.langrid.service.ml.MaskedWordPredictionService;

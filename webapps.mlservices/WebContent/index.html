@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf8"
+</head>
+<body>
+hello
+<script>
+const socket = new WebSocket('ws://localhost:8080/ws/TestMaskedWordPrediction');
+
+//接続が開いたときのイベント
+socket.addEventListener('open', function (event) {
+ socket.send("{\"callback\":null,\"headers\":[],\"id\":\"1\",\"method\":\"predict\",\"params\":[[\"こんにちは\"]]}");
+});
+
+//メッセージの待ち受け
+socket.addEventListener('message', function (event) {
+ console.log('Message from server ', event.data);
+});
+</script>
+</body>
+</html>
