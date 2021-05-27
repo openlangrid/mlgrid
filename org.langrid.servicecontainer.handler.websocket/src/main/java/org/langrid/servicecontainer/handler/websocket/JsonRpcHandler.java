@@ -17,14 +17,22 @@
  */
 package org.langrid.servicecontainer.handler.websocket;
 
+import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.lang.reflect.Type;
+import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
+import javax.websocket.Session;
+
+import org.langrid.client.ws.MethodUtil;
 
 import jp.go.nict.langrid.commons.beanutils.Converter;
 import jp.go.nict.langrid.commons.beanutils.ConverterForJsonRpc;
@@ -34,6 +42,7 @@ import jp.go.nict.langrid.commons.rpc.RpcFault;
 import jp.go.nict.langrid.commons.rpc.RpcFaultUtil;
 import jp.go.nict.langrid.commons.rpc.RpcHeader;
 import jp.go.nict.langrid.commons.rpc.intf.RpcAnnotationUtil;
+import jp.go.nict.langrid.commons.rpc.json.JsonRpcUtil;
 import jp.go.nict.langrid.commons.ws.MimeHeaders;
 import jp.go.nict.langrid.commons.ws.ServiceContext;
 import jp.go.nict.langrid.repackaged.net.arnx.jsonic.JSON;
@@ -45,10 +54,35 @@ import jp.go.nict.langrid.servicecontainer.handler.ServiceLoader;
  * @author Takao Nakaguchi
  */
 public class JsonRpcHandler {
+	public JsonRpcHandler(Session session) {
+		this.session = session;
+	}
 	/**
 	 * 
 	 * 
 	 */
+	private void prepareCallbacks(Method method, Object[] params) {
+		ClassLoader cl = Thread.currentThread().getContextClassLoader();
+		Class<?>[] pts= method.getParameterTypes();
+		for(int i = 0; i < pts.length; i++) {
+			Class<?> pc = pts[i];
+			if(!pc.isInterface()) continue;
+			String cid = params[i].toString();
+			params[i] = Proxy.newProxyInstance(cl, new Class<?>[] {pc}, new InvocationHandler() {
+				@Override
+				public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+					if(method.getDeclaringClass().isInterface()) {
+						String j = JSON.encode(JsonRpcUtil.createRequest(Collections.emptyList(), method, args));
+						session.getBasicRemote().sendText("C:" + cid + ":" + j);
+						return null;
+					} else {
+						return method.invoke(cid, args);
+					}
+				}
+			});
+		}
+	}
+	private Map<String, Object> services = new HashMap<>();
 	public String handle(
 			ServiceContext sc, ServiceLoader sl, String serviceName,
 			String request){
@@ -84,10 +118,13 @@ public class JsonRpcHandler {
 					res.setError(newRpcFault404());
 					return JSON.encode(res);
 				}
-				service = f.createService(cl, sc, clazz);
+				Class<?> clz = clazz;
+				service = services.computeIfAbsent(serviceName, sn -> f.createService(cl, sc, clz));
 				initialize(serviceName, service);
 				// Currently only array("[]") is supported, while JsonRpc accepts Object("{}")
-				result = invokeMethod(service, method, req.getParams(), converter);
+				Object[] params = req.getParams();
+				prepareCallbacks(method, params);
+				result = MethodUtil.invokeMethod(service, method, params, converter);
 			} finally{
 				MimeHeaders resMimeHeaders = new MimeHeaders();
 				RIProcessor.finish(resMimeHeaders, resHeaders);
@@ -98,7 +135,7 @@ public class JsonRpcHandler {
 			res.setResult(result);
 			Method implMethod = service.getClass().getMethod(method.getName(), method.getParameterTypes());
 			int depth = RpcAnnotationUtil.getMethodMaxReturnObjectDepth(implMethod, method);
-			return new JSON(depth + 1).format(res);
+			return "R:" + new JSON(depth + 1).format(res);
 		} catch(InvocationTargetException e){
 			Throwable t = e.getTargetException();
 			logger.log(Level.SEVERE, "failed to handle request for " + serviceName
@@ -117,27 +154,6 @@ public class JsonRpcHandler {
 
 	protected void initialize(String serviceName, Object service) {}
 
-	static Object invokeMethod(Object instance, Method method, Object[] params, Converter converter)
-	throws IllegalAccessException, IllegalArgumentException, InvocationTargetException{
-		Type[] ptypes = method.getGenericParameterTypes();
-		Object[] args = new Object[ptypes.length];
-		for(int i = 0; i < args.length; i++){
-			if(params[i].equals("")){
-				if(ptypes[i].equals(String.class)){
-					args[i] = "";
-				} else if(ptypes[i] instanceof Class){
-					Class<?> clz = (Class<?>)ptypes[i];
-					if(clz.isPrimitive()){
-						args[i] = ClassUtil.getDefaultValueForPrimitive(clz);
-					}
-				}
-			} else{
-				args[i] = converter.convert(params[i], ptypes[i]);
-			}
-		}
-		return method.invoke(instance, args);
-	}
-
 	private RpcFault newRpcFault404() {
 		return new RpcFault("404", "Service Not Found.", "Service Not Found.");
 	}
@@ -145,6 +161,7 @@ public class JsonRpcHandler {
 		return RpcFaultUtil.throwableToRpcFault("Server.userException", exception);
 	}
 
+	private Session session;
 	private Converter converter = new ConverterForJsonRpc();
 	private static Logger logger = Logger.getLogger(JsonRpcHandler.class.getName());
 }
