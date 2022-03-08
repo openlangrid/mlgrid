@@ -1,7 +1,7 @@
 package org.langrid.service.ml;
 
 public interface SpeechRecognitionService {
-	String startRecognition(SpeechRecognitionReceiverService receiver);
-	void processRecognition(String recognitionId, byte[] audio);
-	void stopRecognition(String recognitionId);
+	void startRecognition(SpeechRecognitionReceiverService receiver);
+	void processRecognition(byte[] audio);
+	void stopRecognition();
 }
