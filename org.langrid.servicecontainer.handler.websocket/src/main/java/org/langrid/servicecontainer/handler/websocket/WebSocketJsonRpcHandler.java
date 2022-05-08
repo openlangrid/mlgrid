@@ -17,6 +17,7 @@
  */
 package org.langrid.servicecontainer.handler.websocket;
 
+import java.io.IOException;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -34,6 +35,10 @@ import javax.websocket.Session;
 
 import org.langrid.client.ws.MethodUtil;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import de.undercouch.bson4jackson.BsonFactory;
 import jp.go.nict.langrid.commons.beanutils.Converter;
 import jp.go.nict.langrid.commons.beanutils.ConverterForJsonRpc;
 import jp.go.nict.langrid.commons.lang.ClassUtil;
@@ -43,6 +48,7 @@ import jp.go.nict.langrid.commons.rpc.RpcFaultUtil;
 import jp.go.nict.langrid.commons.rpc.RpcHeader;
 import jp.go.nict.langrid.commons.rpc.intf.RpcAnnotationUtil;
 import jp.go.nict.langrid.commons.rpc.json.JsonRpcUtil;
+import jp.go.nict.langrid.commons.util.Pair;
 import jp.go.nict.langrid.commons.ws.MimeHeaders;
 import jp.go.nict.langrid.commons.ws.ServiceContext;
 import jp.go.nict.langrid.repackaged.net.arnx.jsonic.JSON;
@@ -53,16 +59,36 @@ import jp.go.nict.langrid.servicecontainer.handler.ServiceLoader;
 /**
  * @author Takao Nakaguchi
  */
-public class JsonRpcHandler {
-	public JsonRpcHandler(Session session) {
+public class WebSocketJsonRpcHandler {
+	public WebSocketJsonRpcHandler(Session session) {
 		this.session = session;
 	}
-	/**
-	 * 
-	 * 
-	 */
-	private void prepareCallbacks(Method method, Object[] params) {
-		ClassLoader cl = Thread.currentThread().getContextClassLoader();
+
+	private Pair<Object, Method> getService(ServiceContext sc, ClassLoader cl, ServiceFactory f, String serviceName,
+			WebSocketJsonRpcRequest req, WebSocketJsonRpcResponse res) {
+		Collection<Class<?>> interfaceClasses = f.getInterfaces();
+		int paramLength = req.getParams() == null ? 0 : req.getParams().length;
+		Class<?> clazz = null;
+		Method method = null;
+		for(Class<?> clz : interfaceClasses){
+			method = ClassUtil.findMethod(clz, req.getMethod(), paramLength);
+			if(method == null) continue;
+			clazz = clz;
+			break;
+		}
+		if(method == null){
+			return Pair.create(null, null);
+		}
+		Class<?> clz = clazz;
+		Object service = services.computeIfAbsent(serviceName, sn -> f.createService(cl, sc, clz));
+		initialize(serviceName, service);
+		// Currently only array("[]") is supported, while JsonRpc accepts Object("{}")
+		Object[] params = req.getParams();
+		prepareCallbacks(cl, method, params);
+		return Pair.create(service, method);
+	}
+
+	private void prepareCallbacks(ClassLoader cl, Method method, Object[] params) {
 		Class<?>[] pts= method.getParameterTypes();
 		for(int i = 0; i < pts.length; i++) {
 			Class<?> pc = pts[i];
@@ -82,11 +108,80 @@ public class JsonRpcHandler {
 			});
 		}
 	}
-	private Map<String, Object> services = new HashMap<>();
+
 	public String handle(
 			ServiceContext sc, ServiceLoader sl, String serviceName,
 			String request){
 		WebSocketJsonRpcRequest req = JSON.decode(request, WebSocketJsonRpcRequest.class);
+		ClassLoader cl = Thread.currentThread().getContextClassLoader();
+		List<RpcHeader> resHeaders = new ArrayList<RpcHeader>();
+		Class<?> clazz = null;
+		Object result = null;
+		WebSocketJsonRpcResponse res = new WebSocketJsonRpcResponse();
+		try{
+			ServiceFactory f = sl.loadServiceFactory(cl, serviceName);
+			if(f == null){
+				res.setError(newRpcFault404());
+				return JSON.encode(res);
+			}
+			RIProcessor.start(sc);
+			var sm = getService(sc, cl, f, serviceName, req, res);
+			Object service = sm.getFirst();
+			Method method = sm.getSecond();
+			if(method == null) {
+				int paramLength = req.getParams() == null ? 0 : req.getParams().length;
+				logger.warning(String.format(
+						"method \"%s(%s)\" not found in service \"%s\"."
+						, req.getMethod(), StringUtil.repeatedString("arg", paramLength, ",")
+						, serviceName));
+				res.setError(newRpcFault404());
+				return JSON.encode(res);
+			}
+			try{
+				result = MethodUtil.invokeMethod(service, method, req.getParams(), converter);
+			} finally{
+				MimeHeaders resMimeHeaders = new MimeHeaders();
+				RIProcessor.finish(resMimeHeaders, resHeaders);
+				res.setMimeHeaders(resMimeHeaders);
+			}
+			res.setId(req.getId());
+			res.setHeaders(resHeaders.toArray(new RpcHeader[]{}));
+			res.setResult(result);
+			Method implMethod = service.getClass().getMethod(method.getName(), method.getParameterTypes());
+			int depth = RpcAnnotationUtil.getMethodMaxReturnObjectDepth(implMethod, method);
+			return new JSON(depth + 1).format(res);
+		} catch(InvocationTargetException e){
+			Throwable t = e.getTargetException();
+			logger.log(Level.SEVERE, "failed to handle request for " + serviceName
+					+ (clazz != null ? ":" + clazz.getName() : "") + "#" + req.getMethod()
+					, t);
+			res.setError(newRpcFault(t));
+			return JSON.encode(res);
+		} catch(Exception e){
+			logger.log(Level.SEVERE, "failed to handle request for " + serviceName
+					+ (clazz != null ? ":" + clazz.getName() : "") + "#" + req.getMethod()
+					, e);
+			res.setError(newRpcFault(e));
+			return JSON.encode(res);
+		}
+	}
+
+	public String handle(
+			ServiceContext sc, ServiceLoader sl, String serviceName,
+			byte[] request){
+		ObjectMapper mapper = new ObjectMapper(new BsonFactory());
+		WebSocketJsonRpcRequest req;
+		try {
+			req = mapper.readValue(request, WebSocketJsonRpcRequest.class);
+		} catch (IOException e1) {
+			WebSocketJsonRpcResponse res = new WebSocketJsonRpcResponse();
+			res.setError(newRpcFault(e1));
+			try {
+				return mapper.writeValueAsString(res);
+			} catch (JsonProcessingException e) {
+				throw new RuntimeException(e);
+			}
+		}
 		ClassLoader cl = Thread.currentThread().getContextClassLoader();
 		List<RpcHeader> resHeaders = new ArrayList<RpcHeader>();
 		Class<?> clazz = null;
@@ -123,7 +218,7 @@ public class JsonRpcHandler {
 				initialize(serviceName, service);
 				// Currently only array("[]") is supported, while JsonRpc accepts Object("{}")
 				Object[] params = req.getParams();
-				prepareCallbacks(method, params);
+				prepareCallbacks(cl, method, params);
 				result = MethodUtil.invokeMethod(service, method, params, converter);
 			} finally{
 				MimeHeaders resMimeHeaders = new MimeHeaders();
@@ -135,7 +230,7 @@ public class JsonRpcHandler {
 			res.setResult(result);
 			Method implMethod = service.getClass().getMethod(method.getName(), method.getParameterTypes());
 			int depth = RpcAnnotationUtil.getMethodMaxReturnObjectDepth(implMethod, method);
-			return "R:" + new JSON(depth + 1).format(res);
+			return new JSON(depth + 1).format(res);
 		} catch(InvocationTargetException e){
 			Throwable t = e.getTargetException();
 			logger.log(Level.SEVERE, "failed to handle request for " + serviceName
@@ -162,6 +257,7 @@ public class JsonRpcHandler {
 	}
 
 	private Session session;
+	private Map<String, Object> services = new HashMap<>();
 	private Converter converter = new ConverterForJsonRpc();
-	private static Logger logger = Logger.getLogger(JsonRpcHandler.class.getName());
+	private static Logger logger = Logger.getLogger(WebSocketJsonRpcHandler.class.getName());
 }

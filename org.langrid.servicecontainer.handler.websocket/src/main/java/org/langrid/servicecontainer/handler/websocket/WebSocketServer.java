@@ -35,7 +35,7 @@ public class WebSocketServer {
 			loader = new ServiceLoader(new LocalServiceContext(), ServicesUtil.getServiceFactoryLoaders(getClass()));
 		}
 		session.getUserProperties().put("serviceLoader", loader);
-		session.getUserProperties().put("serviceHandler", new JsonRpcHandler(session));
+		session.getUserProperties().put("serviceHandler", new WebSocketJsonRpcHandler(session));
 	}
 
 	@OnClose
@@ -46,12 +46,25 @@ public class WebSocketServer {
 	@OnError
 	public void onError(
 			Session session, Throwable error, @PathParam("serviceId") String serviceId) {
-		error.printStackTrace();
 	}
 
 	@OnMessage
 	public String onMessage(Session session, String message, @PathParam("serviceId") String serviceId) {
-		JsonRpcHandler h = (JsonRpcHandler)session.getUserProperties().get("serviceHandler");
+		WebSocketJsonRpcHandler h = (WebSocketJsonRpcHandler)session.getUserProperties().get("serviceHandler");
+		ServiceLoader loader = (ServiceLoader)session.getUserProperties().get("serviceLoader");
+		ServiceContext sc = null;
+		HttpSession httpSession = (HttpSession)session.getUserProperties().get(HttpSession.class.getName());
+		if(httpSession != null) {
+			sc = new ServletContextServiceContext(httpSession.getServletContext());
+		} else {
+			sc = new LocalServiceContext();
+		}
+		return h.handle(sc, loader, serviceId, message);
+	}
+
+	@OnMessage
+	public String onMessage(Session session, byte[] message, @PathParam("serviceId") String serviceId) {
+		WebSocketJsonRpcHandler h = (WebSocketJsonRpcHandler)session.getUserProperties().get("serviceHandler");
 		ServiceLoader loader = (ServiceLoader)session.getUserProperties().get("serviceLoader");
 		ServiceContext sc = null;
 		HttpSession httpSession = (HttpSession)session.getUserProperties().get(HttpSession.class.getName());
