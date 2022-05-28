@@ -138,6 +138,6 @@
   </build>
   <modules>
     <module>../org.langrid.service.ml/pom.xml</module>
-    <module>../servicecontainer-handler-websocket/pom.xml</module>
+    <module>../org.langrid.servicecontainer.handler.websocket/pom.xml</module>
   </modules>
 </project>
