@@ -2,7 +2,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>org.langrid</groupId>
   <artifactId>ml</artifactId>
-  <version>0.0-SNAPSHOT</version>
+  <version>0.0.4</version>
   <packaging>pom</packaging>
   <name>Root Artifact</name>
   <description>Root artifact for all artifacts.</description>
@@ -138,6 +138,6 @@
   </build>
   <modules>
     <module>../org.langrid.service.ml/pom.xml</module>
-    <module>../servicecontainer-handler-websocket/pom.xml</module>
+    <module>../org.langrid.servicecontainer.handler.websocket/pom.xml</module>
   </modules>
 </project>
