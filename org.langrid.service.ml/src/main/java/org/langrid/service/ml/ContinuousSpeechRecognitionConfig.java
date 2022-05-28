@@ -3,15 +3,15 @@ package org.langrid.service.ml;
 public class ContinuousSpeechRecognitionConfig {
 	private int channels;
 	private int sampleSizeInBits;
-	private int frameRate;  // hertz. 8000, 16000, 44100.
+	private int sampleRate;  // hertz. 8000, 16000, 44100.
 
 	public ContinuousSpeechRecognitionConfig(){
 	}
 
-	public ContinuousSpeechRecognitionConfig(int channels, int sampleSizeInBits, int frameRate) {
+	public ContinuousSpeechRecognitionConfig(int channels, int sampleSizeInBits, int sampleRate) {
 		this.channels = channels;
 		this.sampleSizeInBits = sampleSizeInBits;
-		this.frameRate = frameRate;
+		this.sampleRate = sampleRate;
 	}
 
 	public int getChannels() {
@@ -26,11 +26,11 @@ public class ContinuousSpeechRecognitionConfig {
 	public void setSampleSizeInBits(int sampleSizeInBits) {
 		this.sampleSizeInBits = sampleSizeInBits;
 	}
-	public int getFrameRate() {
-		return frameRate;
+	public int getSampleRate() {
+		return sampleRate;
 	}
-	public void setFrameRate(int frameRate) {
-		this.frameRate = frameRate;
+	public void setSampleRate(int sampleRate) {
+		this.sampleRate = sampleRate;
 	}
 	
 }
