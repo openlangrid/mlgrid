@@ -1,5 +1,5 @@
 package org.langrid.service.ml;
 
 public enum TextSentimentLabel {
-	POSITIVE, NORMAL, NEGATIVE;
+	POSITIVE, NEUTRAL, NEGATIVE;
 }
