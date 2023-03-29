@@ -3,9 +3,7 @@ package org.langrid.service.ml;
 import jp.go.nict.langrid.service_1_2.InvalidParameterException;
 import jp.go.nict.langrid.service_1_2.ProcessFailedException;
 
-public interface HumanPoseEstimation3dService {
-	HumanPoseEstimation3dResult estimate(
-		byte[] image, String imageFormat
-	)
+public interface ImageConversionService {
+	Image convert(byte[] image, String imageFormat)
 	throws InvalidParameterException, ProcessFailedException;
 }
