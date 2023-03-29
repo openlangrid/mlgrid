@@ -2,7 +2,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>org.langrid</groupId>
   <artifactId>ml</artifactId>
-  <version>0.0-SNAPSHOT</version>
+  <version>0.0.6</version>
   <packaging>pom</packaging>
   <name>Root Artifact</name>
   <description>Root artifact for all artifacts.</description>
@@ -119,7 +119,7 @@
       <plugin>
         <groupId>org.sonatype.plugins</groupId>
         <artifactId>nexus-staging-maven-plugin</artifactId>
-        <version>1.6.3</version>
+        <version>1.6.13</version>
         <executions>
           <execution>
            <id>default-deploy</id>
